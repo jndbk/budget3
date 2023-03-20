@@ -40,7 +40,9 @@ dependencies:
   firebase_database: ^10.0.15
   http: ^0.13.5
   crypto: ^3.0.2
-
+  sqflite:
+  path:
+  
 dev_dependencies:
   flutter_test:
     sdk: flutter

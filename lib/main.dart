@@ -1,12 +1,15 @@
 import 'dart:async';
 
+import 'package:budget3/sophtron_api.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'categories.dart';
 import 'patterns.dart';
-import 'load.dart';
+import 'accounts.dart';
+import 'package:path/path.dart';
+import 'package:sqflite/sqflite.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,6 +27,26 @@ void main() async {
             measurementId: "G-W29GBPT2HF"));
   } else {
     await Firebase.initializeApp();
+    // Open the database and store the reference.
+    openDatabase(
+      // Set the path to the database. Note: Using the `join` function from the
+      // `path` package is best practice to ensure the path is correctly
+      // constructed for each platform.
+      join(await getDatabasesPath(), 'fanokiBudget.db'),
+      onCreate: (db, version) async {
+        // Run the CREATE TABLE statement on the database.
+        await db.execute(
+          'CREATE TABLE userInstitutionInfo(id TEXT PRIMARY KEY, name TEXT)',
+        );
+        await db.execute(
+          'CREATE TABLE accountInfo(name TEXT PRIMARY KEY, userInstitutionId TEXT, '
+          'logo TEXT, lastTransactionId INTEGER)',
+        );
+      },
+      // Set the version. This executes the onCreate function and provides a
+      // path to perform database upgrades and downgrades.
+      version: 1,
+    );
   }
   runApp(const MyApp());
 }
@@ -72,9 +95,12 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
+  var uid = 0;
   var pageIndex = 0;
   var categories = <BudgetCategory>[];
   var patterns = <BudgetPattern>[];
+  BudgetUserInfo userInfo = BudgetUserInfo();
+  Map<String, UserInstitutionInfo> userInstitutionInfo = {};
   DatabaseReference ref = FirebaseDatabase.instance.ref();
   DatabaseReference containerRef =
       FirebaseDatabase.instance.ref("/categories/0");
@@ -122,9 +148,21 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
+  void updateDb() async {
+    final database =
+        await openDatabase(join(await getDatabasesPath(), 'fanokiBudget.db'));
+    var res = await database.rawQuery('select * from userInstitutionInfo');
+    for (var uii in res) {
+      userInstitutionInfo[uii['id'] as String] =
+          UserInstitutionInfo(uii['id'] as String, uii['name'] as String);
+      await getAccounts(uii['id'] as String, accountCb, transactionsCb);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    updateDb();
     _activateCategoryListener();
     _activatePatternListener();
   }
@@ -208,6 +246,44 @@ class _MyHomePageState extends State<MyHomePage> {
     updateCategories();
   }
 
+  void addBankCb(UserInstitutionInfo info) async {
+    final database =
+        await openDatabase(join(await getDatabasesPath(), 'fanokiBudget.db'));
+    var name = info.name;
+    var id = info.id;
+    await database.execute(
+        'insert into userInstitutionInfo(name, id) VALUES("$name", "$id")');
+    setState(() {
+      userInstitutionInfo[info.id] = info;
+    });
+  }
+
+  void accountCb(List<AccountInfo> info) {}
+
+  void transactionsCb(List<BudgetTransaction> trans) {
+    if (kDebugMode) {
+      print("Callback with $trans");
+    }
+  }
+
+  Widget getCurPage() {
+    if (pageIndex == 0) {
+      return const PeriodTotals();
+    } else if (pageIndex == 2) {
+      return BudgetPatternsPage(this.context, categories, patterns,
+          _addBudgetPattern, _deleteBudgetPattern);
+    } else if (pageIndex == 3) {
+      return CategoriesPage(this.context, categories, _addBudgetCategory,
+          _deleteBudgetCategory, _updateBudgetCategory);
+    } else if (pageIndex == 4) {
+      return LoadAccountsPage(
+          this.context,
+          LoadAccountsParams(addBankCb, transactionsCb, accountCb, userInfo,
+              userInstitutionInfo));
+    }
+    return const Text("hi");
+  }
+
   @override
   Widget build(BuildContext context) {
     // This method is rerun every time setState is called, for instance as done
@@ -221,7 +297,7 @@ class _MyHomePageState extends State<MyHomePage> {
       "Item Details",
       "Patterns",
       "Categories",
-      "Load Expenses"
+      "Account Management"
     ];
     var statusTitle = statusTitles[pageIndex];
     return SafeArea(
@@ -231,16 +307,7 @@ class _MyHomePageState extends State<MyHomePage> {
         // the App.build method, and use it to set our appbar title.
         title: Text(statusTitle),
       ),
-      body: CurrentPage(
-          context,
-          pageIndex,
-          categories,
-          patterns,
-          _addBudgetCategory,
-          _deleteBudgetCategory,
-          _updateBudgetCategory,
-          _addBudgetPattern,
-          _deleteBudgetPattern),
+      body: getCurPage(),
       drawer: Drawer(
         child: ListView(
           // Important: Remove any padding from the ListView.
@@ -275,7 +342,7 @@ class _MyHomePageState extends State<MyHomePage> {
               },
             ),
             ListTile(
-              title: const Text('Load expenses...'),
+              title: const Text('Account Management...'),
               onTap: () {
                 _setPageIndex(4);
                 Navigator.pop(context);
@@ -285,45 +352,5 @@ class _MyHomePageState extends State<MyHomePage> {
         ),
       ),
     ));
-  }
-}
-
-class CurrentPage extends StatelessWidget {
-  final BuildContext context;
-  final int pageIndex;
-  final List<BudgetCategory> categories;
-  final List<BudgetPattern> patterns;
-  final Function addBudgetCategoryCallback;
-  final Function deleteBudgetCategoryCallback;
-  final Function updateBudgetCategoryCallback;
-  final Function addBudgetPatternCallback;
-  final Function deleteBudgetPatternCallback;
-  const CurrentPage(
-      this.context,
-      this.pageIndex,
-      this.categories,
-      this.patterns,
-      this.addBudgetCategoryCallback,
-      this.deleteBudgetCategoryCallback,
-      this.updateBudgetCategoryCallback,
-      this.addBudgetPatternCallback,
-      this.deleteBudgetPatternCallback,
-      {super.key});
-  final curColumn = 0;
-  final curRow = 0;
-  @override
-  Widget build(BuildContext context) {
-    if (pageIndex == 0) {
-      return const PeriodTotals();
-    } else if (pageIndex == 2) {
-      return BudgetPatternsPage(context, categories, patterns,
-          addBudgetPatternCallback, deleteBudgetPatternCallback);
-    } else if (pageIndex == 3) {
-      return CategoriesPage(context, categories, addBudgetCategoryCallback,
-          deleteBudgetCategoryCallback, updateBudgetCategoryCallback);
-    } else if (pageIndex == 4) {
-      return const LoadExpensesPage();
-    }
-    return const Text("hi");
   }
 }
