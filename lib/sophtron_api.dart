@@ -17,16 +17,17 @@ class InstitutionInfo extends Object {
 class UserInstitutionInfo extends Object {
   String id;
   String name;
-  UserInstitutionInfo(this.id, this.name);
+  String? logo;
+  UserInstitutionInfo(this.id, this.name, this.logo);
 }
 
 class AccountInfo extends Object {
   String userInstitutionId;
-  String? logo;
   String name;
+  String accountId;
   int lastTransactionId;
-  AccountInfo(
-      this.userInstitutionId, this.logo, this.name, this.lastTransactionId);
+  AccountInfo(this.userInstitutionId, this.name, this.accountId,
+      this.lastTransactionId);
 }
 
 class BudgetTransaction extends Object {
@@ -69,20 +70,24 @@ Future<http.Response> makeConnection(
   return response;
 }
 
-Future<void> newAccount(InstitutionInfo instInfo, Function userInstCb,
-    Function accountCb, Function transactionsCb) async {
+Future<void> newAccount(
+    InstitutionInfo instInfo,
+    Map<String, String> loginFields,
+    Function userInstCb,
+    Function accountCb,
+    Function transactionsCb) async {
   var result = await makeConnection(
       'https://api.sophtron.com/api/UserInstitution/CreateUserInstitution',
       <String, String>{
         "UserID": userId,
         "InstitutionID": instInfo.id,
-        "UserName": "jndbk1",
-        "Password": "au55iedog",
+        "UserName": loginFields['UserName'] as String,
+        "Password": loginFields['Password'] as String,
       });
   var info = jsonDecode(result.body);
   var jobId = info['JobID'];
   var instId = info['UserInstitutionID'];
-  var userInstInfo = UserInstitutionInfo(instId, instInfo.name);
+  var userInstInfo = UserInstitutionInfo(instId, instInfo.name, instInfo.logo);
   do {
     result = await makeConnection(
         'https://api.sophtron.com/api/Job/GetJobInformationByID',
@@ -112,10 +117,38 @@ Future<void> getAccounts(String userInstitutionId, Function accountCb,
     print("Got user accounts");
     print(info);
   }
-  //List<AccountInfo> newAccounts;
-  //for (var account in info) {
-  //  newAccounts.add(AccountInfo(userInstitutionId, null, info))
-  var accountId = info[0]['AccountID'];
+  List<AccountInfo> newAccounts = [];
+  for (var account in info) {
+    newAccounts.add(AccountInfo(
+        userInstitutionId, account['AccountName'], account['AccountID'], 0));
+  }
+  accountCb(newAccounts);
+  for (var account in info) {
+    newAccounts.add(AccountInfo(
+        userInstitutionId, account['AccountName'], account['AccountID'], 0));
+    result = await makeConnection(
+        'https://api.sophtron.com/api/Transaction/GetTransactionsByTransactionDate',
+        <String, String>{
+          "AccountID": account['AccountID'] as String,
+          "StartDate": "2023-02-01T00:00:00.0000000+08:00",
+          "EndDate": "2023-02-28T00:00:00.0000000+08:00",
+        });
+    info = jsonDecode(result.body) as List;
+    var transOut = <BudgetTransaction>[];
+    for (var item in info) {
+      transOut.add(BudgetTransaction(
+          item["UserInstitutionAccountID"],
+          item["TransactionDate"],
+          item["Description"],
+          item["Amount"],
+          "Home"));
+    }
+    if (kDebugMode) {
+      print("Transactions");
+      print(info);
+    }
+    transactionCallback(transOut);
+  }
   /*
   result = await makeConnection(
       'https://api.sophtron.com/api/UserInstitutionAccount/RefreshUserInstitutionAccount',
@@ -138,22 +171,4 @@ Future<void> getAccounts(String userInstitutionId, Function accountCb,
     print(info);
   }
   */
-  result = await makeConnection(
-      'https://api.sophtron.com/api/Transaction/GetTransactionsByTransactionDate',
-      <String, String>{
-        "AccountID": accountId,
-        "StartDate": "2023-02-01T00:00:00.0000000+08:00",
-        "EndDate": "2023-02-28T00:00:00.0000000+08:00",
-      });
-  info = jsonDecode(result.body) as List;
-  var transOut = <BudgetTransaction>[];
-  for (var item in info) {
-    transOut.add(BudgetTransaction(item["UserInstitutionAccountID"],
-        item["TransactionDate"], item["Description"], item["Amount"], "Home"));
-  }
-  if (kDebugMode) {
-    print("Transactions");
-    print(info);
-  }
-  transactionCallback(transOut);
 }

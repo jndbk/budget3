@@ -11,7 +11,7 @@ class LoadAccountsParams extends Object {
   final Function addBankCb;
   final Function transactionsCb;
   final Function accountCb;
-  final BudgetUserInfo userInfo;
+  final Map<String, AccountInfo> userInfo;
   final Map<String, UserInstitutionInfo> userInstitutionInfo;
   const LoadAccountsParams(this.addBankCb, this.transactionsCb, this.accountCb,
       this.userInfo, this.userInstitutionInfo);
@@ -22,15 +22,15 @@ class LoadAccountsPage extends StatefulWidget {
   late final Function addBankCb;
   late final Function accountCb;
   late final Function transactionsCb;
-  late final BudgetUserInfo userInfo;
   late final Map<String, UserInstitutionInfo> userInstitutionInfo;
+  late final Map<String, AccountInfo> accountInfo;
   LoadAccountsPage(BuildContext contextIn, LoadAccountsParams params,
       {super.key}) {
     context = contextIn;
     addBankCb = params.addBankCb;
     accountCb = params.accountCb;
     transactionsCb = params.transactionsCb;
-    userInfo = params.userInfo;
+    accountInfo = params.userInfo;
     userInstitutionInfo = params.userInstitutionInfo;
   }
 
@@ -47,11 +47,18 @@ class _LoadAccountsPageState extends State<LoadAccountsPage> {
   Map<String, String> loginFields = {};
 
   void addBank() {
-    newAccount(selectedBankInfo, widget.addBankCb, widget.accountCb,
-        widget.transactionsCb);
+    newAccount(selectedBankInfo, loginFields, widget.addBankCb,
+        widget.accountCb, widget.transactionsCb);
     setState(() {
       showSearch = false;
     });
+  }
+
+  String getLogo(String institutionId) {
+    if (widget.userInstitutionInfo[institutionId] != null) {
+      return widget.userInstitutionInfo[institutionId]!.logo as String;
+    }
+    return ('');
   }
 
   @override
@@ -108,7 +115,7 @@ class _LoadAccountsPageState extends State<LoadAccountsPage> {
                 Padding(
                   padding: const EdgeInsets.all(8.0),
                   child: TextField(
-                    onChanged: (text) => {loginFields[loginField = text]},
+                    onChanged: (text) => {loginFields[loginField] = text},
                     decoration: InputDecoration(
                         border: const OutlineInputBorder(),
                         labelText: loginField),
@@ -118,10 +125,10 @@ class _LoadAccountsPageState extends State<LoadAccountsPage> {
                 ElevatedButton(onPressed: addBank, child: const Text('Add')),
             ],
           ),
-        for (var account in widget.userInfo.accounts.values)
+        for (var account in widget.accountInfo.values)
           Row(
             children: [
-              if (account.logo != null) Image.network(account.logo as String),
+              //Image.network(getLogo(account.userInstitutionId)),
               Padding(
                 padding: const EdgeInsets.all(8.0),
                 child: Text(account.name),

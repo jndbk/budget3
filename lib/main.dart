@@ -32,20 +32,20 @@ void main() async {
       // Set the path to the database. Note: Using the `join` function from the
       // `path` package is best practice to ensure the path is correctly
       // constructed for each platform.
-      join(await getDatabasesPath(), 'fanokiBudget.db'),
+      join(await getDatabasesPath(), 'fanokiBudget6.db'),
       onCreate: (db, version) async {
         // Run the CREATE TABLE statement on the database.
         await db.execute(
-          'CREATE TABLE userInstitutionInfo(id TEXT PRIMARY KEY, name TEXT)',
+          'CREATE TABLE userInstitutionInfo(id TEXT PRIMARY KEY, name TEXT, logo TEXT)',
         );
         await db.execute(
-          'CREATE TABLE accountInfo(name TEXT PRIMARY KEY, userInstitutionId TEXT, '
-          'logo TEXT, lastTransactionId INTEGER)',
+          'CREATE TABLE accountInfo(accountId TEXT PRIMARY KEY,name TEXT, '
+          'userInstitutionId TEXT, lastTransactionId INTEGER)',
         );
       },
       // Set the version. This executes the onCreate function and provides a
       // path to perform database upgrades and downgrades.
-      version: 1,
+      version: 4,
     );
   }
   runApp(const MyApp());
@@ -99,8 +99,8 @@ class _MyHomePageState extends State<MyHomePage> {
   var pageIndex = 0;
   var categories = <BudgetCategory>[];
   var patterns = <BudgetPattern>[];
-  BudgetUserInfo userInfo = BudgetUserInfo();
   Map<String, UserInstitutionInfo> userInstitutionInfo = {};
+  Map<String, AccountInfo> accountInfo = {};
   DatabaseReference ref = FirebaseDatabase.instance.ref();
   DatabaseReference containerRef =
       FirebaseDatabase.instance.ref("/categories/0");
@@ -150,12 +150,21 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void updateDb() async {
     final database =
-        await openDatabase(join(await getDatabasesPath(), 'fanokiBudget.db'));
+        await openDatabase(join(await getDatabasesPath(), 'fanokiBudget3.db'));
     var res = await database.rawQuery('select * from userInstitutionInfo');
     for (var uii in res) {
-      userInstitutionInfo[uii['id'] as String] =
-          UserInstitutionInfo(uii['id'] as String, uii['name'] as String);
-      await getAccounts(uii['id'] as String, accountCb, transactionsCb);
+      userInstitutionInfo[uii['id'] as String] = UserInstitutionInfo(
+          uii['id'] as String, uii['name'] as String, uii['logo'] as String);
+    }
+    res = await database.rawQuery('select * from accountInfo');
+    for (var aid in res) {
+      setState(() {
+        accountInfo[aid['accountId'] as String] = AccountInfo(
+            aid['userInstitutionId'] as String,
+            aid['name'] as String,
+            aid['accountId'] as String,
+            aid['lastTransactionId'] as int);
+      });
     }
   }
 
@@ -248,17 +257,33 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void addBankCb(UserInstitutionInfo info) async {
     final database =
-        await openDatabase(join(await getDatabasesPath(), 'fanokiBudget.db'));
+        await openDatabase(join(await getDatabasesPath(), 'fanokiBudget6.db'));
     var name = info.name;
     var id = info.id;
+    var logo = info.logo;
     await database.execute(
-        'insert into userInstitutionInfo(name, id) VALUES("$name", "$id")');
+        'insert into userInstitutionInfo(name, id, logo) VALUES("$name", "$id", "$logo")');
     setState(() {
       userInstitutionInfo[info.id] = info;
     });
   }
 
-  void accountCb(List<AccountInfo> info) {}
+  void accountCb(List<AccountInfo> info) async {
+    final database =
+        await openDatabase(join(await getDatabasesPath(), 'fanokiBudget6.db'));
+    for (var account in info) {
+      var name = account.name;
+      var id = account.accountId;
+      var uiid = account.userInstitutionId;
+      var lastTransaction = account.lastTransactionId;
+      await database.execute(
+          'insert into accountInfo(name, userInstitutionId, accountId, lastTransactionId) '
+          'VALUES("$name", "$uiid", "$id", "$lastTransaction")');
+      setState(() {
+        accountInfo[id] = AccountInfo(uiid, name, id, lastTransaction);
+      });
+    }
+  }
 
   void transactionsCb(List<BudgetTransaction> trans) {
     if (kDebugMode) {
@@ -278,7 +303,7 @@ class _MyHomePageState extends State<MyHomePage> {
     } else if (pageIndex == 4) {
       return LoadAccountsPage(
           this.context,
-          LoadAccountsParams(addBankCb, transactionsCb, accountCb, userInfo,
+          LoadAccountsParams(addBankCb, transactionsCb, accountCb, accountInfo,
               userInstitutionInfo));
     }
     return const Text("hi");
